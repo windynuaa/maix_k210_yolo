@@ -16,3 +16,5 @@ IMPORTANT NOTE:
 重要提示：
     请将sdk升级到github上的最新版本，否则无法使用nncase生成的kmodel。
     另外，有些版本的nncase无法生成正确的模型，可以更换版本尝试。
+
+为人脸检测优化过速度的版本见face分支
