@@ -8,6 +8,8 @@
 #include "plic.h"
 #include "sysctl.h"
 #include "uarths.h"
+#include <bsp.h>
+#include <sysctl.h>
 #include "ov2460.h"
 #include "utils.h"
 #include "kpu.h"
@@ -98,7 +100,7 @@ class_lable_t class_lable[CLASS_NUMBER] =
     {"dog", GREEN},
     {"horse", GREEN},
     {"motorbike", GREEN},
-    {"person", 0xF800},
+    {"person", 0xF800},//face 14
     {"pottedplant", GREEN},
     {"sheep", GREEN},
     {"sofa", GREEN},
@@ -127,53 +129,65 @@ static void lable_init(void)
 #endif
 }
 
-static void drawboxes(uint32_t x1, uint32_t y1, uint32_t x2, uint32_t y2, uint32_t class, float prob)
-{
-    if (x1 >= 320)
-        x1 = 319;
-    if (x2 >= 320)
-        x2 = 319;
-    if (y1 >= 240)
-        y1 = 239;
-    if (y2 >= 240)
-        y2 = 239;
-
-//#if (CLASS_NUMBER > 1)
-//    lcd_draw_rectangle(x1, y1, x2, y2, 2, class_lable[class].color);
-//    lcd_draw_picture(x1 + 1, y1 + 1, class_lable[class].width, class_lable[class].height, class_lable[class].ptr);
-//#else
-    lcd_draw_rectangle(x1, y1, x2, y2, 2, RED);
-//#endif
-}
-
-void rgb888_to_lcd(uint8_t *src, uint16_t *dest, size_t width, size_t height)
-{
-    size_t i, chn_size = width * height;
-    for (size_t i = 0; i < width * height; i++)
-    {
-        uint8_t r = src[i];
-        uint8_t g = src[chn_size + i];
-        uint8_t b = src[chn_size * 2 + i];
-
-        uint16_t rgb = ((r & 0b11111000) << 8) | ((g & 0b11111100) << 3) | (b >> 3);
-        size_t d_i = i % 2 ? (i - 1) : (i + 1);
-        dest[d_i] = rgb;
-    }
-}
 
 
+
+uint16_t *framebuffer; //display buffer
+	
 static int ai_done(void *ctx)
 {
     g_ai_done_flag = 1;
     return 0;
 }
 
+static volatile int hook_1;
+static volatile int x1,x2,y1,y2;//bbox 
+/*
+	K210 has two cores, so we use core0 for AI computation and core1 for display
+	known bug:
+		Sometimes CORE1 may crash.
+	
+*/
+int core1_function(void *ctx) // for display while core0 for AI 
+{
+    while(1)
+    {
+		Sipeed_OV2640_sensor_snapshot();
+		lcd_draw_picture(0, 0, 320, 240, framebuffer);
+		if(hook_1>0)
+			lcd_draw_rectangle(x1, y1, x2, y2, 4, RED);
+    }
+}
+
+static void drawboxes(uint32_t xx1, uint32_t yy1, uint32_t xx2, uint32_t yy2, uint32_t class, float prob)
+{
+	
+	
+	if(prob>0)//have bbox
+	{	
+		hook_1=300;//add a delay or the bbox will not be show 
+		x1=xx1>=320?319:xx1;
+		x2=xx2>=320?319:xx2;
+		y1=yy1>=240?239:yy1;
+		y2=yy2>=240?239:yy2;
+	}
+	if(hook_1--<-255)//no bbox
+	{
+		hook_1=0;
+		x1=0;
+		x2=0;
+		y1=0;
+		y2=0;
+	}
+}
+
+
 int main(void)
 {
     int ov2640_addr;
     int a;
     uint8_t *aibuffer;
-    uint16_t *framebuffer;
+    
     float *output;
     size_t output_size;
     /* Set CPU and dvp clk */
@@ -184,7 +198,6 @@ int main(void)
     io_mux_init();
     io_set_power();
     plic_init();
-
 
     lable_init();
 
@@ -215,7 +228,7 @@ int main(void)
         printf("\nmodel init error\n");
         while (1);
     }
-    printf("good \n");
+    printf("kmodel init success \n");
     detect_rl.anchor_number = ANCHOR_NUM;
     detect_rl.anchor = g_anchor;
     detect_rl.threshold = 0.5;
@@ -228,36 +241,21 @@ int main(void)
     kpu_run_kmodel(&task, aibuffer, DMAC_CHANNEL5, ai_done, NULL);
     while(!g_ai_done_flag);
     kpu_get_output(&task, 0, &detect_rl.input, &output_size);
-    
+    register_core1(core1_function, NULL);
     
     //
     while(1)
     {
         g_ai_done_flag = 0;
         /* start to calculate */
-
         kpu_run_kmodel(&task, aibuffer, DMAC_CHANNEL5, ai_done, NULL);
-
-	Sipeed_OV2640_sensor_snapshot();
-	lcd_draw_picture(0, 0, 320, 240, framebuffer);
-	region_layer_draw_boxes(&detect_rl, drawboxes);
-	region_layer_run(&detect_rl, NULL);
+		Sipeed_OV2640_sensor_snapshot();
+		region_layer_draw_boxes(&detect_rl, drawboxes);
+		region_layer_run(&detect_rl, NULL);
         while(!g_ai_done_flag);
+        kpu_get_output(&task, 0, &output, &output_size);
+        detect_rl.input = output;
 
-        kpu_get_output(&task, 0, &detect_rl.input, &output_size);
-        //kpu_get_output(&task, 0, &output, &output_size);
-        //detect_rl.input = output;
-        //output_size /= sizeof(float);
-
-        /* start region layer */
-        //region_layer_run(&detect_rl, NULL);
-
-        /* display pic*/
-        //rgb888_to_lcd(aibuffer, lcd_gram, 320, 240);
-        //lcd_draw_picture(0, 0, 320, 240, framebuffer);
-
-        /* draw boxs */
-        //region_layer_draw_boxes(&detect_rl, drawboxes);
     }
 
     

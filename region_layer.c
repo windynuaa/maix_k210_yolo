@@ -27,7 +27,7 @@ int region_layer_init(region_layer_t *rl, int width, int height, int channels, i
     rl->image_width = 320;
     rl->image_height = 240;
 
-    rl->classes = channels / 5 - 5;
+    rl->classes = channels / 5 - 5; // /anchor num -bbox 
     rl->net_width = origin_width;
     rl->net_height = origin_height;
     rl->layer_width = width;
@@ -135,26 +135,7 @@ static void softmax_cpu(region_layer_t *rl, float *input, int n, int batch, int 
     }
 }
 
-static void forward_region_layer(region_layer_t *rl)
-{
-    int index;
 
-    for (index = 0; index < rl->output_number; index++)
-        rl->output[index] = rl->input[index];
-
-    for (int n = 0; n < rl->anchor_number; ++n)
-    {
-        index = entry_index(rl, n * rl->layer_width * rl->layer_height, 0);
-        activate_array(rl, index, 2 * rl->layer_width * rl->layer_height);
-        index = entry_index(rl, n * rl->layer_width * rl->layer_height, 4);
-        activate_array(rl, index, rl->layer_width * rl->layer_height);
-    }
-
-    index = entry_index(rl, 0, rl->coords + 1);
-    softmax_cpu(rl, rl->input + index, rl->classes, rl->anchor_number,
-            rl->output_number / rl->anchor_number, rl->layer_width * rl->layer_height,
-            rl->layer_width * rl->layer_height, rl->output + index);
-}
 
 static void correct_region_boxes(region_layer_t *rl, box_t *boxes)
 {
@@ -206,7 +187,7 @@ static void get_region_boxes(region_layer_t *rl, float *predictions, float **pro
     uint32_t classes = rl->classes;
     uint32_t coords = rl->coords;
     float threshold = rl->threshold;
-
+	int j;
     for (int i = 0; i < layer_width * layer_height; ++i)
     {
         int row = i / layer_width;
@@ -216,7 +197,8 @@ static void get_region_boxes(region_layer_t *rl, float *predictions, float **pro
         {
             int index = n * layer_width * layer_height + i;
 
-            for (int j = 0; j < classes; ++j)
+            //for (int j = 0; j < classes; ++j)
+		j=14;
                 probs[index][j] = 0;
             int obj_index = entry_index(rl, n * layer_width * layer_height + i, coords);
             int box_index = entry_index(rl, n * layer_width * layer_height + i, 0);
@@ -227,15 +209,16 @@ static void get_region_boxes(region_layer_t *rl, float *predictions, float **pro
 
             float max = 0;
 
-            for (int j = 0; j < classes; ++j)
-            {
+            //for (int j = 0; j < classes; ++j)
+            //{
+		j=14;
                 int class_index = entry_index(rl, n * layer_width * layer_height + i, coords + 1 + j);
                 float prob = scale * predictions[class_index];
 
                 probs[index][j] = (prob > threshold) ? prob : 0;
                 if (prob > max)
                     max = prob;
-            }
+            //}
             probs[index][classes] = max;
         }
     }
@@ -305,8 +288,9 @@ static void do_nms_sort(region_layer_t *rl, box_t *boxes, float **probs)
         s[i].probs = probs;
     }
 
-    for (k = 0; k < classes; ++k)
-    {
+    //for (k = 0; k < classes; ++k)
+    //{
+	 k=14;
         for (i = 0; i < boxes_number; ++i)
             s[i].class = k;
         qsort(s, boxes_number, sizeof(sortable_box_t), nms_comparator);
@@ -324,7 +308,7 @@ static void do_nms_sort(region_layer_t *rl, box_t *boxes, float **probs)
                     probs[s[j].index][k] = 0;
             }
         }
-    }
+    //}
 }
 
 static int max_index(float *a, int n)
@@ -372,6 +356,27 @@ static void region_layer_output(region_layer_t *rl, obj_info_t *obj_info)
     obj_info->obj_number = obj_number;
 }
 
+static void forward_region_layer(region_layer_t *rl)
+{
+    int index;
+
+    for (index = 0; index < rl->output_number; index++)
+        rl->output[index] = rl->input[index];
+
+    for (int n = 0; n < rl->anchor_number; ++n)
+    {
+        index = entry_index(rl, n * rl->layer_width * rl->layer_height, 0);
+        activate_array(rl, index, 2 * rl->layer_width * rl->layer_height);
+        index = entry_index(rl, n * rl->layer_width * rl->layer_height, 4);
+        activate_array(rl, index, rl->layer_width * rl->layer_height);
+    }
+
+    index = entry_index(rl, 0, rl->coords + 1);
+    softmax_cpu(rl, rl->input + index, rl->classes, rl->anchor_number,
+            rl->output_number / rl->anchor_number, rl->layer_width * rl->layer_height,
+            rl->layer_width * rl->layer_height, rl->output + index);
+}
+
 void region_layer_run(region_layer_t *rl, obj_info_t *obj_info)
 {
     forward_region_layer(rl);
@@ -401,5 +406,9 @@ void region_layer_draw_boxes(region_layer_t *rl, callback_draw_box callback)
             uint32_t y2 = b->y * image_height + (b->h * image_height / 2);
             callback(x1, y1, x2, y2, class, prob);
         }
+	else
+	{
+		callback(0, 0, 0, 0, 0, 0);
+	}
     }
 }

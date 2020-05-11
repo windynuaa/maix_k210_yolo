@@ -52,8 +52,8 @@ void tft_hard_init(uint8_t spi, uint8_t ss, uint8_t rst, uint8_t dcx, uint32_t f
     g_spi_num = spi;
     g_dma_ch = dma_ch;
     g_ss = ss;
-	fpioa_set_function(36, FUNC_SPI0_SS3);//cs
-	fpioa_set_function(39, FUNC_SPI0_SCLK);//wc
+    fpioa_set_function(36, FUNC_SPI0_SS3);//cs
+    fpioa_set_function(39, FUNC_SPI0_SCLK);//wc
     init_dcx(dcx, dcx_pin);
     init_rst(rst, rst_pin);
     set_rst(0);
